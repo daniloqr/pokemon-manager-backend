@@ -4,7 +4,7 @@ const { open } = require('sqlite');
 async function initializeDatabase() {
   try {
     const db = await open({
-      filename: './pokemon_manager.db',
+      filename: '/var/data/pokemon_manager.db',
       driver: sqlite3.Database
     });
 
