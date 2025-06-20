@@ -1,10 +1,21 @@
 const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
+const fs = require('fs');
+const path = require('path');
 
 async function initializeDatabase() {
   try {
+    // Garante que a pasta 'data' exista dentro do projeto
+    const dataDir = path.join(__dirname, 'data');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir);
+      console.log("Diretório ./data criado.");
+    }
+
+    const dbFile = path.join(dataDir, 'pokemon_manager.db');
+
     const db = await open({
-      filename: '/var/data/pokemon_manager.db',
+      filename: dbFile,
       driver: sqlite3.Database
     });
 
