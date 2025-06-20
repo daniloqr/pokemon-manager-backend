@@ -6,7 +6,7 @@ const fs = require('fs');
 const initializeDatabase = require('./database');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // Função auxiliar para registrar logs de auditoria
 async function logAction(db, userId, action, details) {

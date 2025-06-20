@@ -18,7 +18,7 @@ async function initializeDatabase() {
     }
 
     const db = await open({
-      filename: dbPath, // Usa a variável com o caminho
+      filename: '/data/pokemon_manager.db',
       driver: sqlite3.Database
     });
 
