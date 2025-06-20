@@ -5,7 +5,7 @@ const fs = require('fs');     // Importa o módulo 'fs' (File System)
 
 async function initializeDatabase() {
   try {
-    // Define o caminho do banco de dados para o disco persistente
+    // Define o caminho do banco de dados para o disco persistente da Render
     const dbPath = '/var/data/pokemon_manager.db';
     const dbDir = path.dirname(dbPath); // Pega o nome do diretório: /var/data
 
@@ -13,27 +13,32 @@ async function initializeDatabase() {
     // Verifica se o diretório do banco de dados não existe
     if (!fs.existsSync(dbDir)) {
       console.log(`Diretório ${dbDir} não encontrado, criando...`);
-      // Cria o diretório recursivamente
+      // Cria o diretório recursivamente. Isso garante que o caminho exista.
       fs.mkdirSync(dbDir, { recursive: true });
     }
 
     const db = await open({
-      filename: '/data/pokemon_manager.db',
+      filename: dbPath, // Usa a variável com o caminho
       driver: sqlite3.Database
     });
 
     console.log('Conectado ao banco de dados SQLite.');
 
-    // --- CRIAÇÃO DE TODAS AS TABELAS ---
-    // ... (Seu código CREATE TABLE para users, pokemons, etc., continua aqui sem alterações) ...
-    await db.exec(`CREATE TABLE IF NOT EXISTS users (...)`);
-    await db.exec(`CREATE TABLE IF NOT EXISTS pokemons (...)`);
-    await db.exec(`CREATE TABLE IF NOT EXISTS trainer_sheets (...)`);
-    await db.exec(`CREATE TABLE IF NOT EXISTS pokedex (...)`);
-    await db.exec(`CREATE TABLE IF NOT EXISTS mochila_itens (...)`);
-    await db.exec(`CREATE TABLE IF NOT EXISTS audit_logs (...)`);
-
-    console.log("Todas as tabelas foram verificadas/criadas.");
+    // --- CRIAÇÃO DAS TABELAS ---
+    // Seu código para criar as tabelas (users, pokemons, etc.) continua aqui sem alterações
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        tipo_usuario TEXT NOT NULL,
+        image_url TEXT
+      )
+    `);
+    
+    // ... cole aqui o restante dos seus comandos CREATE TABLE ...
+    
+    console.log("Tabelas verificadas/criadas.");
 
     // --- SEED DE DADOS INICIAIS ---
     const masterUser = await db.get('SELECT * FROM users WHERE username = ?', ['master']);
