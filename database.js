@@ -16,19 +16,23 @@ async function initializeDatabase() {
         tipo_usuario TEXT NOT NULL,
         image_url TEXT
       );
-      CREATE TABLE IF NOT EXISTS pokemons (
-        id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL,
-        level INTEGER NOT NULL,
-        xp INTEGER NOT NULL DEFAULT 0,
-        max_hp INTEGER NOT NULL DEFAULT 10,
-        current_hp INTEGER NOT NULL DEFAULT 10,
-        image_url TEXT,
-        trainer_id INTEGER NOT NULL,
-        status TEXT NOT NULL DEFAULT 'U',
-        FOREIGN KEY (trainer_id) REFERENCES users (id) ON DELETE CASCADE
-      );
+        CREATE TABLE IF NOT EXISTS pokemons (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          level INTEGER NOT NULL,
+          xp INTEGER NOT NULL DEFAULT 0,
+          max_hp INTEGER NOT NULL DEFAULT 10,
+          current_hp INTEGER NOT NULL DEFAULT 10,
+          especial INTEGER NOT NULL DEFAULT 10,
+          especial_total INTEGER NOT NULL DEFAULT 10,
+          vigor INTEGER NOT NULL DEFAULT 10,
+          vigor_total INTEGER NOT NULL DEFAULT 10,
+          image_url TEXT,
+          trainer_id INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'U',
+          FOREIGN KEY (trainer_id) REFERENCES users (id) ON DELETE CASCADE
+        );
       CREATE TABLE IF NOT EXISTS trainer_sheets (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL UNIQUE,
