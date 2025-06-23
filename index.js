@@ -4,8 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+
 const initializeDatabase = require('./database'); // Seu arquivo de conexão com o DB
 
 // ------------------- CONFIGURAÇÃO INICIAL -------------------
