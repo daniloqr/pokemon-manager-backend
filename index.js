@@ -6,7 +6,7 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
-const initializeDatabase = require('./database'); // Seu arquivo de conexão com o DB
+const initializeDatabase = require('./database'); // Importa o database.js corrigido
 
 // ------------------- CONFIGURAÇÃO INICIAL -------------------
 const app = express();
@@ -69,7 +69,6 @@ async function startServer() {
     const { username, password } = req.body;
     try {
         // AVISO DE SEGURANÇA: Armazenar senhas em texto plano é perigoso.
-        // O ideal é usar uma biblioteca como 'bcrypt' para fazer o hash das senhas.
         const { rows } = await pool.query('SELECT id, username, tipo_usuario FROM users WHERE username = $1 AND password = $2', [username, password]);
         const user = rows[0];
         if (user) {
@@ -234,7 +233,7 @@ async function startServer() {
   app.get('/trainer/:id/pokemons', async (req, res) => {
     const { id } = req.params;
     try {
-        const { rows } = await pool.query("SELECT * FROM pokemons WHERE trainer_id = $1 AND status = 'U'", [id]);
+        const { rows } = await pool.query("SELECT * FROM pokemons WHERE trainer_id = $1 AND status = 'U' ORDER BY id", [id]);
         res.status(200).json(rows);
     } catch (error) {
         console.error("Erro na rota /trainer/:id/pokemons:", error);
@@ -255,14 +254,14 @@ async function startServer() {
         else if (image_url) { finalImageUrl = image_url; }
 
         const query = `
-            INSERT INTO pokemons (name, type, level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total, image_url, trainer_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
+            INSERT INTO pokemons (name, type, level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total, image_url, trainer_id, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'U') RETURNING *
         `;
         const values = [name, type, level || 1, xp || 0, max_hp || 10, current_hp || 10, especial || 10, especial_total || 10, vigor || 10, vigor_total || 10, finalImageUrl, trainer_id];
         
         const { rows } = await pool.query(query, values);
         await logAction(pool, trainer_id, 'ADICIONOU_POKEMON', `Adicionou '${name}' à equipe.`);
-        res.status(201).json({ message: 'Pokémon cadastrado com sucesso!', pokemonId: rows[0].id });
+        res.status(201).json({ message: 'Pokémon cadastrado com sucesso!', pokemon: rows[0] });
     } catch (error) {
         console.error("Erro na rota /pokemons:", error);
         res.status(500).json({ message: 'Erro interno no servidor.' });
@@ -318,7 +317,7 @@ async function startServer() {
         
         await logAction(client, pokemonToDelete.trainer_id, 'LIBEROU_POKEMON', `O pokémon '${pokemonToDelete.name}' foi liberado.`);
         await client.query('COMMIT');
-        res.status(200).json({ message: 'Pokémon excluído com sucesso!' });
+        res.status(200).json({ message: 'Pokémon excluído com sucesso!', deletedPokemonId: pokemonId });
     } catch (error) {
         await client.query('ROLLBACK');
         console.error("Erro ao excluir Pokémon:", error);
@@ -327,7 +326,6 @@ async function startServer() {
         client.release();
     }
   });
-
 
   // --- ROTAS DO DEPÓSITO DE POKÉMON (BOX) ---
   
