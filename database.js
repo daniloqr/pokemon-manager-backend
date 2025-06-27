@@ -11,7 +11,6 @@ const pool = new Pool({
 
 /**
  * Inicializa o banco de dados, criando as tabelas se elas não existirem.
- * Cada comando "CREATE TABLE" é executado separadamente.
  */
 async function initializeDatabase() {
   const client = await pool.connect(); // Pega um cliente de conexão para as operações
@@ -43,7 +42,7 @@ async function initializeDatabase() {
         vigor_total INTEGER NOT NULL DEFAULT 10,
         image_url TEXT,
         trainer_id INTEGER NOT NULL,
-        status TEXT NOT NULL DEFAULT 'U',
+        status TEXT NOT NULL DEFAULT 'U', /* U = In Use, D = Deposited */
         FOREIGN KEY (trainer_id) REFERENCES users (id) ON DELETE CASCADE
       );
     `);
@@ -53,18 +52,8 @@ async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS trainer_sheets (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL UNIQUE,
-        nome TEXT, 
-        peso TEXT, 
-        idade TEXT, 
-        altura TEXT, 
-        cidade TEXT, 
-        regiao TEXT,
-        xp TEXT, 
-        hp TEXT, 
-        level TEXT, 
-        vantagens_json TEXT, 
-        atributos_json TEXT, 
-        pericias_json TEXT,
+        nome TEXT, peso TEXT, idade TEXT, altura TEXT, cidade TEXT, regiao TEXT,
+        xp TEXT, hp TEXT, level TEXT, vantagens_json TEXT, atributos_json TEXT, pericias_json TEXT,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
       );
     `);
@@ -106,17 +95,14 @@ async function initializeDatabase() {
       );
     `);
     
-    // Tabela de fichas dos pokémons (faltava no seu código original)
+    // Tabela de fichas dos pokémons
     await client.query(`
       CREATE TABLE IF NOT EXISTS pokemon_sheets (
         id SERIAL PRIMARY KEY,
         pokemon_id INTEGER NOT NULL UNIQUE,
-        -- Adicione aqui as colunas para a ficha do pokémon
-        -- Ex: nature TEXT, ability TEXT, etc...
         FOREIGN KEY (pokemon_id) REFERENCES pokemons(id) ON DELETE CASCADE
       );
     `);
-
 
     // Seed do usuário master
     const { rows: masterUserRows } = await client.query('SELECT * FROM users WHERE username = $1', ['master']);
@@ -132,7 +118,7 @@ async function initializeDatabase() {
     return pool; // Retorna o pool para ser usado no index.js
   } catch (error) {
     console.error('Erro fatal ao inicializar o banco de dados:', error);
-    process.exit(1); // Encerra a aplicação se o banco não puder ser inicializado
+    process.exit(1);
   } finally {
     client.release(); // Libera o cliente de volta para o pool
   }
