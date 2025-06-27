@@ -6,7 +6,7 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
-const initializeDatabase = require('./database'); // Importa o database.js corrigido
+const initializeDatabase = require('./database'); // Seu arquivo de conexão com o DB
 
 // ------------------- CONFIGURAÇÃO INICIAL -------------------
 const app = express();
@@ -53,7 +53,7 @@ async function startServer() {
 
   // ================== ROTAS DA APLICAÇÃO ==================
 
-  // --- ROTAS PÚBLICAS (LOGIN, REGISTRO, ETC.) ---
+  // --- ROTAS DE AUDITORIA E LOGIN (PÚBLICAS) ---
 
   app.get('/auditoria', async (req, res) => {
     try {
@@ -68,6 +68,8 @@ async function startServer() {
   app.post('/login', async (req, res) => {
     const { username, password } = req.body;
     try {
+        // AVISO DE SEGURANÇA: Armazenar senhas em texto plano é perigoso.
+        // O ideal é usar uma biblioteca como 'bcrypt' para fazer o hash das senhas.
         const { rows } = await pool.query('SELECT id, username, tipo_usuario FROM users WHERE username = $1 AND password = $2', [username, password]);
         const user = rows[0];
         if (user) {
@@ -81,16 +83,43 @@ async function startServer() {
         res.status(500).json({ message: 'Erro interno no servidor.' });
     }
   });
-  
-  app.post('/users/register', async (req, res) => {
+
+  // --- ROTAS DE USUÁRIOS / TREINADORES ---
+
+  app.get('/users/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const { rows: requestingRows } = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+        const requestingUser = requestingRows[0];
+        if (!requestingUser) { return res.status(404).json({ message: 'Usuário solicitante não encontrado.' }); }
+
+        if (requestingUser.tipo_usuario === 'M') {
+            const { rows: trainers } = await pool.query("SELECT id, username, image_url FROM users WHERE tipo_usuario = 'T'");
+            res.status(200).json(trainers);
+        } else if (requestingUser.tipo_usuario === 'T') {
+            const { rows } = await pool.query("SELECT id, username, image_url FROM users WHERE id = $1", [userId]);
+            res.status(200).json(rows);
+        }
+    } catch (error) {
+        console.error("Erro na rota /users/:userId:", error);
+        res.status(500).json({ message: 'Erro interno no servidor.' });
+    }
+  });
+
+  app.post('/users/register', upload.single('imageFile'), async (req, res) => {
     const { username, password } = req.body;
     try {
         if (!username || !password) { return res.status(400).json({ message: 'Nome de usuário e senha são obrigatórios.' }); }
         const { rows: existingRows } = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
         if (existingRows.length > 0) { return res.status(409).json({ message: 'Este nome de usuário já está em uso.' }); }
+
         let imageUrl = 'https://i.imgur.com/6MKOJ1G.png';
         if (req.file) { imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`; }
-        const { rows } = await pool.query("INSERT INTO users (username, password, image_url, tipo_usuario) VALUES ($1, $2, $3, 'T') RETURNING id", [username, password, imageUrl]);
+        
+        const { rows } = await pool.query(
+            "INSERT INTO users (username, password, image_url, tipo_usuario) VALUES ($1, $2, $3, 'T') RETURNING id",
+            [username, password, imageUrl]
+        );
         await logAction(pool, 1, 'CADASTRO_TREINADOR', `O treinador '${username}' (ID: ${rows[0].id}) foi criado.`);
         res.status(201).json({ message: 'Treinador cadastrado com sucesso!', userId: rows[0].id });
     } catch (error) {
@@ -99,23 +128,15 @@ async function startServer() {
     }
   });
 
-  // --- ROTAS DE USUÁRIOS / TREINADORES ---
-
-  app.get('/users/trainers', async (req, res) => {
-    try {
-        const { rows } = await pool.query("SELECT id, username, image_url FROM users WHERE tipo_usuario = 'T' ORDER BY username ASC");
-        res.status(200).json(rows);
-    } catch (error) {
-        console.error("Erro ao buscar treinadores:", error);
-        res.status(500).json({ message: 'Erro interno no servidor.' });
-    }
-  });
-
   app.get('/user/:id', async (req, res) => {
     const { id } = req.params;
     try {
         const { rows } = await pool.query('SELECT id, username, image_url FROM users WHERE id = $1', [id]);
-        res.status(rows.length > 0 ? 200 : 404).json(rows.length > 0 ? rows[0] : { message: 'Usuário não encontrado.' });
+        if (rows.length > 0) {
+            res.status(200).json(rows[0]);
+        } else {
+            res.status(404).json({ message: 'Usuário não encontrado.' });
+        }
     } catch (error) {
         console.error("Erro na rota /user/:id:", error);
         res.status(500).json({ message: 'Erro interno no servidor.' });
@@ -127,9 +148,9 @@ async function startServer() {
     const { username, password } = req.body;
     try {
         const { rows: currentRows } = await pool.query('SELECT username, image_url FROM users WHERE id = $1', [id]);
-        if (currentRows.length === 0) { return res.status(404).json({ message: 'Usuário não encontrado para atualizar.' }); }
-        
         const currentUser = currentRows[0];
+        if (!currentUser) { return res.status(404).json({ message: 'Usuário não encontrado para atualizar.' }); }
+
         const updates = [];
         const params = [];
         let logDetails = [];
@@ -149,18 +170,21 @@ async function startServer() {
             updates.push(`image_url = $${params.length + 1}`);
             params.push(newImageUrl);
             logDetails.push(`Imagem alterada.`);
-            if (currentUser.image_url && !currentUser.image_url.startsWith('http')) {
-                fs.unlink(path.join(__dirname, 'uploads', currentUser.image_url.split('/uploads/')[1]), (err) => { if (err) console.error("Erro ao deletar imagem antiga:", err); });
+            const defaultImage = 'https://i.imgur.com/6MKOJ1G.png';
+            if (currentUser.image_url && currentUser.image_url !== defaultImage && currentUser.image_url.includes('/uploads/')) {
+                const oldImageName = currentUser.image_url.split('/uploads/')[1];
+                if (oldImageName) { fs.unlink(path.join(__dirname, 'uploads', oldImageName), (err) => { if (err) console.error("Erro ao deletar imagem antiga:", err); }); }
             }
         }
+        if (updates.length === 0) {
+            return res.status(400).json({ message: 'Nenhum dado fornecido para atualização.' });
+        }
 
-        if (updates.length === 0) { return res.status(400).json({ message: 'Nenhum dado fornecido para atualização.' }); }
-        
         params.push(id);
         const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${params.length}`;
         await pool.query(query, params);
-        
-        await logAction(pool, 1, 'EDITOU_TREINADOR', `Atualizou perfil de '${username || currentUser.username}' (ID: ${id}). Detalhes: ${logDetails.join('; ')}`);
+
+        await logAction(pool, 1, 'EDITOU_TREINADOR', `Atualizou perfil de '${currentUser.username}' (ID: ${id}). Detalhes: ${logDetails.join('; ')}`);
         res.status(200).json({ message: 'Treinador atualizado com sucesso!' });
     } catch (error) {
         console.error("Erro na rota PUT /user/:id:", error);
@@ -174,12 +198,12 @@ async function startServer() {
     try {
         await client.query('BEGIN');
         const { rows: userRows } = await client.query('SELECT username, image_url FROM users WHERE id = $1', [id]);
-        if (userRows.length === 0) {
+        const userToDelete = userRows[0];
+        if (!userToDelete) {
             await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Usuário não encontrado para exclusão.' });
         }
-        const userToDelete = userRows[0];
-        
+
         await client.query('DELETE FROM pokemon_sheets WHERE pokemon_id IN (SELECT id FROM pokemons WHERE trainer_id = $1)', [id]);
         await client.query('DELETE FROM pokemons WHERE trainer_id = $1', [id]);
         await client.query('DELETE FROM trainer_sheets WHERE user_id = $1', [id]);
@@ -187,7 +211,8 @@ async function startServer() {
         await client.query('DELETE FROM mochila_itens WHERE user_id = $1', [id]);
         await client.query('DELETE FROM users WHERE id = $1', [id]);
 
-        if (userToDelete.image_url && userToDelete.image_url.includes('/uploads/')) {
+        const defaultImage = 'https://i.imgur.com/6MKOJ1G.png';
+        if (userToDelete.image_url && userToDelete.image_url !== defaultImage && userToDelete.image_url.includes('/uploads/')) {
             const imageName = userToDelete.image_url.split('/uploads/')[1];
             if (imageName) { fs.unlink(path.join(__dirname, 'uploads', imageName), err => { if(err) console.error("Erro ao deletar imagem do usuário:", err); }); }
         }
@@ -205,10 +230,11 @@ async function startServer() {
   });
 
   // --- ROTAS DE POKÉMON ---
+
   app.get('/trainer/:id/pokemons', async (req, res) => {
     const { id } = req.params;
     try {
-        const { rows } = await pool.query("SELECT * FROM pokemons WHERE trainer_id = $1 AND status = 'U' ORDER BY id", [id]);
+        const { rows } = await pool.query("SELECT * FROM pokemons WHERE trainer_id = $1 AND status = 'U'", [id]);
         res.status(200).json(rows);
     } catch (error) {
         console.error("Erro na rota /trainer/:id/pokemons:", error);
@@ -217,9 +243,10 @@ async function startServer() {
   });
 
   app.post('/pokemons', upload.single('imageFile'), async (req, res) => {
-    const { name, type, trainer_id, image_url, ...stats } = req.body;
+    const { name, type, level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total, trainer_id, image_url } = req.body;
     try {
         if (!name || !type || !trainer_id) { return res.status(400).json({ message: 'Nome, tipo e ID do treinador são obrigatórios.' }); }
+        
         const { rows: team } = await pool.query('SELECT id FROM pokemons WHERE trainer_id = $1 AND status = $2', [trainer_id, "U"]);
         if (team.length >= 6) { return res.status(403).json({ message: 'Limite de 6 Pokémon por equipe atingido!' }); }
         
@@ -228,14 +255,14 @@ async function startServer() {
         else if (image_url) { finalImageUrl = image_url; }
 
         const query = `
-            INSERT INTO pokemons (name, type, level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total, image_url, trainer_id, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'U') RETURNING *
+            INSERT INTO pokemons (name, type, level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total, image_url, trainer_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
         `;
-        const values = [name, type, stats.level || 1, stats.xp || 0, stats.max_hp || 10, stats.current_hp || 10, stats.especial || 10, stats.especial_total || 10, stats.vigor || 10, stats.vigor_total || 10, finalImageUrl, trainer_id];
+        const values = [name, type, level || 1, xp || 0, max_hp || 10, current_hp || 10, especial || 10, especial_total || 10, vigor || 10, vigor_total || 10, finalImageUrl, trainer_id];
         
         const { rows } = await pool.query(query, values);
         await logAction(pool, trainer_id, 'ADICIONOU_POKEMON', `Adicionou '${name}' à equipe.`);
-        res.status(201).json({ message: 'Pokémon cadastrado com sucesso!', pokemon: rows[0] });
+        res.status(201).json({ message: 'Pokémon cadastrado com sucesso!', pokemonId: rows[0].id });
     } catch (error) {
         console.error("Erro na rota /pokemons:", error);
         res.status(500).json({ message: 'Erro interno no servidor.' });
@@ -273,21 +300,25 @@ async function startServer() {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
+
         const { rows } = await client.query('SELECT name, trainer_id, image_url FROM pokemons WHERE id = $1', [pokemonId]);
         const pokemonToDelete = rows[0];
         if (!pokemonToDelete) {
             await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Pokémon não encontrado para exclusão.' });
         }
+        
         await client.query('DELETE FROM pokemon_sheets WHERE pokemon_id = $1', [pokemonId]);
         await client.query('DELETE FROM pokemons WHERE id = $1', [pokemonId]);
+
         if (pokemonToDelete.image_url && pokemonToDelete.image_url.includes('/uploads/')) {
             const oldImageName = pokemonToDelete.image_url.split('/uploads/')[1];
             if (oldImageName) { fs.unlink(path.join(__dirname, 'uploads', oldImageName), (err) => { if (err) console.error("Erro ao deletar a imagem do pokémon:", err); }); }
         }
+        
         await logAction(client, pokemonToDelete.trainer_id, 'LIBEROU_POKEMON', `O pokémon '${pokemonToDelete.name}' foi liberado.`);
         await client.query('COMMIT');
-        res.status(200).json({ message: 'Pokémon excluído com sucesso!', deletedPokemonId: pokemonId });
+        res.status(200).json({ message: 'Pokémon excluído com sucesso!' });
     } catch (error) {
         await client.query('ROLLBACK');
         console.error("Erro ao excluir Pokémon:", error);
@@ -297,17 +328,8 @@ async function startServer() {
     }
   });
 
+
   // --- ROTAS DO DEPÓSITO DE POKÉMON (BOX) ---
-  app.get('/deposito/:userId', async (req, res) => {
-    const { userId } = req.params;
-    try {
-        const { rows } = await pool.query("SELECT * FROM pokemons WHERE trainer_id = $1 AND status = 'D'", [userId]);
-        res.status(200).json(rows);
-    } catch (error) {
-        console.error("Erro na rota /deposito/:userId:", error);
-        res.status(500).json({ message: 'Erro interno no servidor.' });
-    }
-  });
   
   app.put('/pokemon/:pokemonId/deposit', async (req, res) => {
     const { pokemonId } = req.params;
@@ -346,7 +368,19 @@ async function startServer() {
     }
   });
   
+  app.get('/deposito/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const { rows } = await pool.query("SELECT * FROM pokemons WHERE trainer_id = $1 AND status = 'D'", [userId]);
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error("Erro na rota /deposito/:userId:", error);
+        res.status(500).json({ message: 'Erro interno no servidor.' });
+    }
+  });
+
   // --- ROTAS DA FICHA DO TREINADOR ---
+
   app.get('/ficha/:userId', async (req, res) => {
     const { userId } = req.params;
     try {
@@ -395,6 +429,7 @@ async function startServer() {
   });
 
   // --- ROTAS DA POKEDEX ---
+
   app.get('/pokedex/:userId', async (req, res) => {
     const { userId } = req.params;
     try {
@@ -425,6 +460,7 @@ async function startServer() {
   });
 
   // --- ROTAS DA MOCHILA ---
+
   app.get('/mochila/:userId', async (req, res) => {
     const { userId } = req.params;
     try {
@@ -509,6 +545,7 @@ async function startServer() {
         res.status(500).json({ message: 'Erro interno no servidor.' });
     }
   });
+
   // ------------------- INICIA O SERVIDOR -------------------
   app.listen(PORT, () => console.log(`🚀 Backend rodando em http://localhost:${PORT}`));
 }
