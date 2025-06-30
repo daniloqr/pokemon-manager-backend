@@ -486,59 +486,58 @@ async function startServer() {
 
 
 
-  app.post('/pokemons', upload.single('imageFile'), async (req, res) => {
-  console.log("REQ BODY:", req.body);
-  console.log("REQ FILE:", req.file);
+app.post('/pokemons', upload.single('imageFile'), async (req, res) => {
+  const { name, type, level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total, trainer_id, image_url } = req.body;
+  try {
+    if (!name || !type || !trainer_id) {
+      return res.status(400).json({ message: 'Nome, tipo e ID do treinador são obrigatórios.' });
+    }
 
-    const { name, type, level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total, trainer_id, image_url } = req.body;
+    const { rows: team } = await pool.query('SELECT id FROM pokemons WHERE trainer_id = $1 AND status = $2', [trainer_id, "U"]);
+    if (team.length >= 6) {
+      return res.status(403).json({ message: 'Limite de 6 Pokémon por equipe atingido!' });
+    }
 
-    try {
+    let finalImageUrl = 'https://i.imgur.com/bTf0PCo.png';
+    if (req.file) {
+      finalImageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    } else if (image_url) {
+      finalImageUrl = image_url;
+    }
 
-        if (!name || !type || !trainer_id) { return res.status(400).json({ message: 'Nome, tipo e ID do treinador são obrigatórios.' }); }
+    // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    // O AJUSTE ESTÁ AQUI: type está entre aspas duplas!!!
+    const query = `
+      INSERT INTO pokemons (name, "type", level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total, image_url, trainer_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
+    `;
+    // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-       
+    const values = [
+      name,
+      type,
+      level || 1,
+      xp || 0,
+      max_hp || 10,
+      current_hp || 10,
+      especial || 10,
+      especial_total || 10,
+      vigor || 10,
+      vigor_total || 10,
+      finalImageUrl,
+      trainer_id
+    ];
 
-        const { rows: team } = await pool.query('SELECT id FROM pokemons WHERE trainer_id = $1 AND status = $2', [trainer_id, "U"]);
+    const { rows } = await pool.query(query, values);
 
-        if (team.length >= 6) { return res.status(403).json({ message: 'Limite de 6 Pokémon por equipe atingido!' }); }
+    await logAction(pool, trainer_id, 'ADICIONOU_POKEMON', `Adicionou '${name}' à equipe.`);
+    res.status(201).json({ message: 'Pokémon cadastrado com sucesso!', pokemonId: rows[0].id });
+  } catch (error) {
+    console.error("Erro na rota /pokemons:", error);
+    res.status(500).json({ message: 'Erro interno no servidor.' });
+  }
+});
 
-       
-
-        let finalImageUrl = 'https://i.imgur.com/bTf0PCo.png';
-
-        if (req.file) { finalImageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`; }
-
-        else if (image_url) { finalImageUrl = image_url; }
-
-
-
-        const query = `
-
-            INSERT INTO pokemons (name, type, level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total, image_url, trainer_id)
-
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
-
-        `;
-
-        const values = [name, type, level || 1, xp || 0, max_hp || 10, current_hp || 10, especial || 10, especial_total || 10, vigor || 10, vigor_total || 10, finalImageUrl, trainer_id];
-
-       
-
-        const { rows } = await pool.query(query, values);
-
-        await logAction(pool, trainer_id, 'ADICIONOU_POKEMON', `Adicionou '${name}' à equipe.`);
-
-        res.status(201).json({ message: 'Pokémon cadastrado com sucesso!', pokemonId: rows[0].id });
-
-    } catch (error) {
-
-        console.error("Erro na rota /pokemons:", error);
-
-        res.status(500).json({ message: 'Erro interno no servidor.' });
-
-    }
-
-  });
 
 
 app.put('/pokemon-stats/:pokemonId', async (req, res) => {
