@@ -540,29 +540,16 @@ async function startServer() {
 
 
 
-app.put('/pokemon-stats/:pokemonId', async (req, res) => {
+  app.put('/pokemon-stats/:pokemonId', async (req, res) => {
   const { pokemonId } = req.params;
   const changes = req.body;
-
-  // Dicionário para traduzir campos
-  const traduzirCampo = {
-    current_hp: 'HP Atual',
-    max_hp: 'HP Máx',
-    especial: 'Especial',
-    especial_total: 'Especial Total',
-    vigor: 'Vigor',
-    vigor_total: 'Vigor Total',
-    level: 'Nível',
-    xp: 'XP'
-  };
-
   try {
-    // Busque o Pokémon antes da alteração
+    // 1. Busque o Pokémon antigo (antes da alteração)
     const { rows: oldRows } = await pool.query('SELECT * FROM pokemons WHERE id = $1', [pokemonId]);
     const old = oldRows[0];
     if (!old) return res.status(404).json({ message: 'Pokémon não encontrado.' });
 
-    // Prepare UPDATE só com os campos enviados
+    // 2. Prepare o UPDATE apenas com campos enviados
     const setFields = [];
     const values = [];
     let i = 1;
@@ -577,20 +564,21 @@ app.put('/pokemon-stats/:pokemonId', async (req, res) => {
       values
     );
 
-    // Traduza os nomes dos campos e gere os detalhes do log
+    // 3. Crie uma mensagem detalhada das mudanças para o log
     const detalhes = Object.entries(changes).map(([key, value]) => {
-      const label = traduzirCampo[key] || key;
-      return `${label}: ${old[key]} → ${value}`;
+      // Aqui você pode traduzir os nomes dos campos se quiser
+      return `${key}: ${old[key]} → ${value}`;
     }).join('; ');
 
+    // 4. Log da alteração
     await logAction(
       pool,
-      old.trainer_id,
+      old.trainer_id, // ou id do usuário logado se preferir
       'EDITOU_POKEMON',
       `Stats de '${old.name}' atualizados. Alterações: ${detalhes}`
     );
 
-    // Retorne o Pokémon atualizado
+    // 5. Retorne o Pokémon atualizado
     const { rows: newRows } = await pool.query('SELECT * FROM pokemons WHERE id = $1', [pokemonId]);
     res.status(200).json({ message: 'Stats do Pokémon atualizados com sucesso!', pokemon: newRows[0] });
 
@@ -600,8 +588,7 @@ app.put('/pokemon-stats/:pokemonId', async (req, res) => {
   }
 });
 
-
- 
+ // delete a Pokémon by ID
 
   app.delete('/pokemon/:pokemonId', async (req, res) => {
 
