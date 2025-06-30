@@ -541,54 +541,52 @@ async function startServer() {
 
 
   app.put('/pokemon-stats/:pokemonId', async (req, res) => {
+  const { pokemonId } = req.params;
+  const changes = req.body;
+  try {
+    // 1. Busque o Pokémon antigo (antes da alteração)
+    const { rows: oldRows } = await pool.query('SELECT * FROM pokemons WHERE id = $1', [pokemonId]);
+    const old = oldRows[0];
+    if (!old) return res.status(404).json({ message: 'Pokémon não encontrado.' });
 
-    const { pokemonId } = req.params;
+    // 2. Prepare o UPDATE apenas com campos enviados
+    const setFields = [];
+    const values = [];
+    let i = 1;
+    for (const [key, value] of Object.entries(changes)) {
+      setFields.push(`${key} = $${i++}`);
+      values.push(value);
+    }
+    values.push(pokemonId);
 
-    const { level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total } = req.body;
+    await pool.query(
+      `UPDATE pokemons SET ${setFields.join(', ')} WHERE id = $${i}`,
+      values
+    );
 
-    try {
+    // 3. Crie uma mensagem detalhada das mudanças para o log
+    const detalhes = Object.entries(changes).map(([key, value]) => {
+      // Aqui você pode traduzir os nomes dos campos se quiser
+      return `${key}: ${old[key]} → ${value}`;
+    }).join('; ');
 
-        const { rows: oldPokemonRows } = await pool.query('SELECT * FROM pokemons WHERE id = $1', [pokemonId]);
+    // 4. Log da alteração
+    await logAction(
+      pool,
+      old.trainer_id, // ou id do usuário logado se preferir
+      'EDITOU_POKEMON',
+      `Stats de '${old.name}' atualizados. Alterações: ${detalhes}`
+    );
 
-        const oldPokemon = oldPokemonRows[0];
+    // 5. Retorne o Pokémon atualizado
+    const { rows: newRows } = await pool.query('SELECT * FROM pokemons WHERE id = $1', [pokemonId]);
+    res.status(200).json({ message: 'Stats do Pokémon atualizados com sucesso!', pokemon: newRows[0] });
 
-        if (!oldPokemon) { return res.status(404).json({ message: 'Pokémon não encontrado.' }); }
-
-
-
-        const query = `UPDATE pokemons SET level = $1, xp = $2, max_hp = $3, current_hp = $4, especial = $5, especial_total = $6, vigor = $7, vigor_total = $8 WHERE id = $9 RETURNING *`;
-
-        const values = [
-
-            level ?? oldPokemon.level, xp ?? oldPokemon.xp, max_hp ?? oldPokemon.max_hp, current_hp ?? oldPokemon.current_hp,
-
-            especial ?? oldPokemon.especial, especial_total ?? oldPokemon.especial_total, vigor ?? oldPokemon.vigor, vigor_total ?? oldPokemon.vigor_total,
-
-            pokemonId
-
-        ];
-
-       
-
-        const { rows: updatedPokemonRows } = await pool.query(query, values);
-
-        const updatedPokemon = updatedPokemonRows[0];
-
-       
-
-        await logAction(pool, updatedPokemon.trainer_id, 'EDITOU_POKEMON', `Stats de '${updatedPokemon.name}' atualizados.`);
-
-        res.status(200).json({ message: 'Stats do Pokémon atualizados com sucesso!', pokemon: updatedPokemon });
-
-    } catch (error) {
-
-        console.error("Erro ao atualizar stats do Pokémon:", error);
-
-        res.status(500).json({ message: 'Erro interno no servidor.' });
-
-    }
-
-  });
+  } catch (error) {
+    console.error("Erro ao atualizar stats do Pokémon:", error);
+    res.status(500).json({ message: 'Erro interno no servidor.' });
+  }
+});
 
  
 
