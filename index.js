@@ -539,46 +539,61 @@ async function startServer() {
   });
 
 
-
-  app.put('/pokemon-stats/:pokemonId', async (req, res) => {
+app.put('/pokemon-stats/:pokemonId', async (req, res) => {
   const { pokemonId } = req.params;
   const changes = req.body;
+
+  const traduzirCampo = {
+    current_hp: 'HP Atual',
+    max_hp: 'HP Máx',
+    especial: 'Especial',
+    especial_total: 'Especial Total',
+    vigor: 'Vigor',
+    vigor_total: 'Vigor Total',
+    level: 'Nível',
+    xp: 'XP'
+  };
+
   try {
-    // 1. Busque o Pokémon antigo (antes da alteração)
     const { rows: oldRows } = await pool.query('SELECT * FROM pokemons WHERE id = $1', [pokemonId]);
     const old = oldRows[0];
     if (!old) return res.status(404).json({ message: 'Pokémon não encontrado.' });
 
-    // 2. Prepare o UPDATE apenas com campos enviados
+    // Só monte o update com campos realmente alterados!
     const setFields = [];
     const values = [];
     let i = 1;
+
+    // Para o log, só os alterados também
+    const alteracoes = [];
+
     for (const [key, value] of Object.entries(changes)) {
-      setFields.push(`${key} = $${i++}`);
-      values.push(value);
+      if (String(value) !== String(old[key])) {
+        setFields.push(`${key} = $${i++}`);
+        values.push(value);
+        const label = traduzirCampo[key] || key;
+        alteracoes.push(`${label}: ${old[key]} → ${value}`);
+      }
     }
     values.push(pokemonId);
+
+    if (setFields.length === 0) {
+      // Nenhuma alteração, não faz update nem loga nada
+      return res.status(200).json({ message: 'Nenhuma alteração nos stats.' });
+    }
 
     await pool.query(
       `UPDATE pokemons SET ${setFields.join(', ')} WHERE id = $${i}`,
       values
     );
 
-    // 3. Crie uma mensagem detalhada das mudanças para o log
-    const detalhes = Object.entries(changes).map(([key, value]) => {
-      // Aqui você pode traduzir os nomes dos campos se quiser
-      return `${key}: ${old[key]} → ${value}`;
-    }).join('; ');
-
-    // 4. Log da alteração
     await logAction(
       pool,
-      old.trainer_id, // ou id do usuário logado se preferir
+      old.trainer_id,
       'EDITOU_POKEMON',
-      `Stats de '${old.name}' atualizados. Alterações: ${detalhes}`
+      `Stats de '${old.name}' atualizados. Alterações: ${alteracoes.join('; ')}`
     );
 
-    // 5. Retorne o Pokémon atualizado
     const { rows: newRows } = await pool.query('SELECT * FROM pokemons WHERE id = $1', [pokemonId]);
     res.status(200).json({ message: 'Stats do Pokémon atualizados com sucesso!', pokemon: newRows[0] });
 
