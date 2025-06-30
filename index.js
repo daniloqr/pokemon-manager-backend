@@ -540,16 +540,29 @@ async function startServer() {
 
 
 
-  app.put('/pokemon-stats/:pokemonId', async (req, res) => {
+app.put('/pokemon-stats/:pokemonId', async (req, res) => {
   const { pokemonId } = req.params;
   const changes = req.body;
+
+  // Dicionário para traduzir campos
+  const traduzirCampo = {
+    current_hp: 'HP Atual',
+    max_hp: 'HP Máx',
+    especial: 'Especial',
+    especial_total: 'Especial Total',
+    vigor: 'Vigor',
+    vigor_total: 'Vigor Total',
+    level: 'Nível',
+    xp: 'XP'
+  };
+
   try {
-    // 1. Busque o Pokémon antigo (antes da alteração)
+    // Busque o Pokémon antes da alteração
     const { rows: oldRows } = await pool.query('SELECT * FROM pokemons WHERE id = $1', [pokemonId]);
     const old = oldRows[0];
     if (!old) return res.status(404).json({ message: 'Pokémon não encontrado.' });
 
-    // 2. Prepare o UPDATE apenas com campos enviados
+    // Prepare UPDATE só com os campos enviados
     const setFields = [];
     const values = [];
     let i = 1;
@@ -564,21 +577,20 @@ async function startServer() {
       values
     );
 
-    // 3. Crie uma mensagem detalhada das mudanças para o log
+    // Traduza os nomes dos campos e gere os detalhes do log
     const detalhes = Object.entries(changes).map(([key, value]) => {
-      // Aqui você pode traduzir os nomes dos campos se quiser
-      return `${key}: ${old[key]} → ${value}`;
+      const label = traduzirCampo[key] || key;
+      return `${label}: ${old[key]} → ${value}`;
     }).join('; ');
 
-    // 4. Log da alteração
     await logAction(
       pool,
-      old.trainer_id, // ou id do usuário logado se preferir
+      old.trainer_id,
       'EDITOU_POKEMON',
       `Stats de '${old.name}' atualizados. Alterações: ${detalhes}`
     );
 
-    // 5. Retorne o Pokémon atualizado
+    // Retorne o Pokémon atualizado
     const { rows: newRows } = await pool.query('SELECT * FROM pokemons WHERE id = $1', [pokemonId]);
     res.status(200).json({ message: 'Stats do Pokémon atualizados com sucesso!', pokemon: newRows[0] });
 
@@ -587,6 +599,7 @@ async function startServer() {
     res.status(500).json({ message: 'Erro interno no servidor.' });
   }
 });
+
 
  
 
