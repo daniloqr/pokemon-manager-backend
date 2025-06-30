@@ -487,6 +487,8 @@ async function startServer() {
 
 
   app.post('/pokemons', upload.single('imageFile'), async (req, res) => {
+  console.log("REQ BODY:", req.body);
+  console.log("REQ FILE:", req.file);
 
     const { name, type, level, xp, max_hp, current_hp, especial, especial_total, vigor, vigor_total, trainer_id, image_url } = req.body;
 
